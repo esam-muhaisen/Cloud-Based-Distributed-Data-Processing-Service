@@ -71,17 +71,18 @@ from analytics.scalability import run_scalability_test
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 st.title(APP_TITLE)
 
-# --- تهيئة الـ Session State للحفاظ على حالة الأزرار ---
+# --- تهيئة الـ Session State ---
 if 'ml_run_clicked' not in st.session_state:
     st.session_state.ml_run_clicked = False
 
 if 'scalability_run_clicked' not in st.session_state:
     st.session_state.scalability_run_clicked = False
 
-# --- التخزين المؤقت للعمليات الثقيلة (Caching) ---
+# --- التخزين المؤقت للعمليات الثقيلة (التعديل هنا) ---
+# إضافة "_" قبل data تخبر Streamlit ألا يحاول عمل Hash لـ Spark DataFrame
 @st.cache_data
-def cached_ml_jobs(data, columns):
-    return run_ml_jobs(data, columns)
+def cached_ml_jobs(_data, columns):
+    return run_ml_jobs(_data, columns)
 
 @st.cache_data
 def cached_scalability_test(path):
@@ -94,7 +95,6 @@ with st.sidebar:
         "Enter Destination URL (GCS / S3 / Azure)",
         placeholder="gs://your-bucket-name/"
     )
-    # زر لإعادة ضبط التطبيق ومسح النتائج
     if st.button("Clear Results"):
         st.session_state.ml_run_clicked = False
         st.session_state.scalability_run_clicked = False
@@ -108,24 +108,24 @@ if uploaded_file:
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # تشغيل Spark (يفضل وضعه داخل cache أو إدارته بحذر)
+    # إعداد Spark
     spark = get_spark(4)
     df = spark.read.option("header", "true").option("inferSchema", "true").csv(file_path)
     
     num_cols = [c for c, t in df.dtypes if t in ["int", "double", "float"]]
     df_numeric = df.select(num_cols).dropna()
 
-    # --- القسم الأول: الإحصاء الوصفي (يظهر دائماً عند رفع ملف) ---
+    # --- Descriptive Statistics ---
     st.header("Descriptive Statistics")
     stats_df = run_descriptive_stats(df)
     st.table(stats_df)
     stats_df.to_csv(STATS_PATH, index=False)
     download_csv_button("Download Statistics", STATS_PATH)
 
-    st.divider() # خط فاصل للتنظيم
+    st.divider()
 
-    # --- القسم الثاني: Machine Learning ---
-    col1, col2 = st.columns(2) # وضع الأزرار بجانب بعضها لسهولة الاستخدام
+    # --- Buttons Layout ---
+    col1, col2 = st.columns(2)
 
     with col1:
         if st.button("Run ML Jobs") and len(num_cols) > 1:
@@ -134,11 +134,11 @@ if uploaded_file:
     if st.session_state.ml_run_clicked:
         st.subheader("Machine Learning Results")
         with st.spinner("Running ML Models..."):
+            # نمرر df_numeric هنا كـ DataFrame
             ml_df = cached_ml_jobs(df_numeric, num_cols)
             st.table(ml_df)
             ml_df.to_csv(ML_RESULTS_PATH, index=False)
 
-    # --- القسم الثالث: Scalability Test ---
     with col2:
         if st.button("Run Scalability Test"):
             st.session_state.scalability_run_clicked = True
